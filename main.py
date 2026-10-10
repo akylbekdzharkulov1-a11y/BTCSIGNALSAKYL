@@ -6,6 +6,7 @@ def home(): return "Bot is alive!"
 def run_web():
     import os
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
+
 threading.Thread(target=run_web, daemon=True).start()
 import os, time, requests
 from datetime import datetime, timezone, timedelta
