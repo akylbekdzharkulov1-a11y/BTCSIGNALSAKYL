@@ -1,3 +1,12 @@
+from flask import Flask
+import threading
+app = Flask(__name__)
+@app.route('/')
+def home(): return "Bot is alive!"
+def run_web():
+    import os
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
+threading.Thread(target=run_web, daemon=True).start()
 import os, time, requests
 from datetime import datetime, timezone, timedelta
 BOT_TOKEN=os.getenv("BOT_TOKEN"); CHAT_ID=os.getenv("CHAT_ID")
