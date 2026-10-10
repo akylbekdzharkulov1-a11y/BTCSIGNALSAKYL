@@ -7,184 +7,94 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 
 @app.route('/')
-def home(): return "BTC PRO Whale Wyckoff ✅"
+def home(): return "BTC PRO S/R LIVE ✅"
 
 def get_candles():
-    try:
-        url = "https://api.bybit.com/v5/market/kline?category=spot&symbol=BTCUSDT&interval=15&limit=50"
-        r = requests.get(url, timeout=10).json()
-        data = r['result']['list'][::-1]
-        # [start, open, high, low, close, volume, turnover]
-        return [(float(c[1]), float(c[2]), float(c[3]), float(c[4]), float(c[5])) for c in data]
-    except Exception as e:
-        print(f"ERR {e}", flush=True)
-        return None
+    for _ in range(3):
+        try:
+            url = "https://api.bybit.com/v5/market/kline?category=spot&symbol=BTCUSDT&interval=15&limit=100"
+            r = requests.get(url, timeout=15)
+            j = r.json()
+            if 'result' in j and 'list' in j['result']:
+                data = j['result']['list'][::-1]
+                return [(float(c[1]), float(c[2]), float(c[3]), float(c[4]), float(c[5])) for c in data]
+        except: time.sleep(2)
+    return None
 
 def bot_loop():
-    print("✅ PRO MODE Whale+Wyckoff", flush=True)
+    print("✅ PRO S/R MODE STARTED", flush=True)
     last_signal = ""
     last_hourly = 0
     while True:
         try:
             candles = get_candles()
-            if not candles or len(candles)<25:
-                time.sleep(60); continue
+            if not candles or len(candles)<40:
+                time.sleep(30); continue
 
-            opens = [c[0] for c in candles]
             highs = [c[1] for c in candles]
             lows = [c[2] for c in candles]
             closes = [c[3] for c in candles]
             volumes = [c[4] for c in candles]
 
             last_close = closes[-1]
-            last_vol = volumes[-1]
             avg_vol = statistics.mean(volumes[-21:-1])
-            vol_ratio = last_vol / avg_vol if avg_vol>0 else 1
+            vol_ratio = volumes[-1]/avg_vol if avg_vol>0 else 1
 
             prev_high = max(highs[-21:-1])
             prev_low = min(lows[-21:-1])
-            range_high = max(highs[-25:])
-            range_low = min(lows[-25:])
 
-            # Тренд линиялар
-            # Support тренд - lows өсүп жатабы?
-            support_slope = lows[-1] - lows[-10]
-            resist_slope = highs[-1] - highs[-10]
-            if support_slope > 0 and resist_slope > 0:
-                trend_line = "📈 Өсүүчү канал (Higher Highs & Higher Lows) - Тренд линия өйдө"
-                trend = "🟢 Uptrend"
-            elif support_slope < 0 and resist_slope < 0:
-                trend_line = "📉 Түшүүчү канал (Lower Highs & Lower Lows) - Тренд линия ылдый"
-                trend = "🔴 Downtrend"
-            else:
-                trend_line = "📊 Горизонтал канал - Консолидация, тренд линиялар жакындашууда"
-                trend = "⚪️ Range"
+            # S/R 3 деңгээл
+            all_highs = sorted(set([round(h) for h in highs[-50:]]), reverse=True)
+            all_lows = sorted(set([round(l) for l in lows[-50:]]))
+            R1 = all_highs[0] if len(all_highs)>0 else prev_high
+            R2 = all_highs[1] if len(all_highs)>1 else R1+300
+            R3 = all_highs[2] if len(all_highs)>2 else R1+600
+            S1 = all_lows[0] if len(all_lows)>0 else prev_low
+            S2 = all_lows[1] if len(all_lows)>1 else S1+300
+            S3 = all_lows[2] if len(all_lows)>2 else S1+600
 
-            # Кит анализ
-            if vol_ratio > 2.0 and abs(closes[-1]-opens[-1]) > (prev_high-prev_low)*0.3:
-                whale = f"🐋 КИТ АКТИВ! Объем {vol_ratio:.1f}x көп! Чоң оюнчу кирди! Vol: ${last_vol:,.0f}"
-            elif vol_ratio > 1.5:
-                whale = f"🐳 Чоң объем {vol_ratio:.1f}x - Интерес өстү, Vol: ${last_vol:,.0f}"
-            else:
-                whale = f"🦈 Объем нормалдуу {vol_ratio:.1f}x - Кит жок, ритейл соода, Vol: ${last_vol:,.0f}"
-
-            # Вайкофф фаза
-            pos_in_range = (last_close - range_low) / (range_high - range_low) if range_high!=range_low else 0.5
-            if pos_in_range < 0.3 and vol_ratio > 1.3:
-                wyckoff = "🔵 Вайкофф: Аккумуляция (Киттер топтоп жатат, Spring фазасы мүмкүн)"
-            elif pos_in_range > 0.7 and vol_ratio > 1.3:
-                wyckoff = "🟣 Вайкофф: Дистрибуция (Киттер сатып жатат, Upthrust фазасы)"
-            elif pos_in_range < 0.5:
-                wyckoff = "🟡 Вайкофф: Ретест / LPS - Колдоо текшерилип жатат"
-            else:
-                wyckoff = "🟠 Вайкофф: Markup - Өсүү уланууда, FOMO фазасы"
-
-            # RSI жөнөкөй
-            gains = [max(0, closes[i]-closes[i-1]) for i in range(1,len(closes))]
-            losses = [max(0, closes[i-1]-closes[i]) for i in range(1,len(closes))]
-            avg_gain = statistics.mean(gains[-14:]) if gains else 0
-            avg_loss = statistics.mean(losses[-14:]) if losses else 1
-            rsi = 100 - (100/(1+avg_gain/avg_loss)) if avg_loss!=0 else 70
-            rsi_txt = f"RSI {rsi:.0f} - Перекуплен" if rsi>70 else f"RSI {rsi:.0f} - Перепродан" if rsi<30 else f"RSI {rsi:.0f} - Нейтрал"
+            trend = "🟢 Өсүү канал" if lows[-1] > lows[-10] else "🔴 Түшүү канал" if highs[-1] < highs[-10] else "⚪️ Консолидация"
+            whale = f"🐋 КИТ {vol_ratio:.1f}x!" if vol_ratio>1.8 else f"🐳 {vol_ratio:.1f}x" if vol_ratio>1.3 else f"🦈 {vol_ratio:.1f}x норм"
+            pos = (last_close - min(lows[-40:])) / (max(highs[-40:]) - min(lows[-40:]))*100 if max(highs[-40:])!=min(lows[-40:]) else 50
 
             bishkek = datetime.now(timezone.utc) + timedelta(hours=6)
-            t = bishkek.strftime("%d.%m %H:%M")
+            t = bishkek.strftime("%H:%M")
 
-            # Сигнал
             signal = None
             if last_close > prev_high:
-                entry = last_close
-                sl = min(lows[-5:])
-                tp1 = entry + (entry - sl)*1.5
-                tp2 = entry + (entry - sl)*3
-                signal = f"""🚀 SMC PRO SIGNAL 🟢 LONG | {t}
-
-💰 АЗЫР БАА: ${entry:,.2f}
-🏦 Bybit: ${entry:,.2f} | Vol: ${last_vol:,.0f} ({vol_ratio:.1f}x)
-
-📈 ТРЕНД ЛИНИЯ:
-{trend_line}
-BOS {prev_high:,.0f} сынды - Структура бузулду!
-
-{whale}
-
-📊 ОБЪЕМ АНАЛИЗ:
-- Учурдагы: ${last_vol:,.0f} vs Орточо: ${avg_vol:,.0f}
-- {rsi_txt}
-- Order Flow: Покупатели доминируют
-
-{wyckoff}
-
-🔹 Вход: ${entry:,.2f}
-🔻 SL: ${sl:,.2f} (OB асты)
-🎯 TP1: ${tp1:,.2f} | TP2: ${tp2:,.2f}
-
-⚡️ Akyl Whale SMC"""
+                signal = f"🚀 LONG BOS СЫНДЫ!\nБаа: ${last_close:,.0f} > R ${prev_high:,.0f}\n{whale} | {trend}"
             elif last_close < prev_low:
-                entry = last_close
-                sl = max(highs[-5:])
-                tp1 = entry - (sl-entry)*1.5
-                tp2 = entry - (sl-entry)*3
-                signal = f"""🚀 SMC PRO SIGNAL 🔴 SHORT | {t}
-
-💰 АЗЫР БАА: ${entry:,.2f}
-🏦 Bybit: ${entry:,.2f} | Vol: ${last_vol:,.0f} ({vol_ratio:.1f}x)
-
-📉 ТРЕНД ЛИНИЯ:
-{trend_line}
-BOS {prev_low:,.0f} сынды!
-
-{whale}
-
-📊 ОБЪЕМ АНАЛИЗ:
-- Учурдагы: ${last_vol:,.0f} vs Орточо: ${avg_vol:,.0f}
-- {rsi_txt}
-- Order Flow: Продавцы доминируют
-
-{wyckoff}
-
-🔹 Вход: ${entry:,.2f}
-🔻 SL: ${sl:,.2f} (OB үстү)
-🎯 TP1: ${tp1:,.2f} | TP2: ${tp2:,.2f}
-
-⚡️ Akyl Whale SMC"""
+                signal = f"🚀 SHORT BOS СЫНДЫ!\nБаа: ${last_close:,.0f} < S ${prev_low:,.0f}\n{whale} | {trend}"
 
             if signal and signal!= last_signal:
                 requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": signal})
                 last_signal = signal
             else:
                 if time.time() - last_hourly > 3600:
-                    txt = f"""💎 BTC PRO АНАЛИЗ | {t} Bishkek | 15m
+                    txt = f"""💎 BTC PRO S/R | {t} Bishkek
 
 💰 АЗЫР БАА: ${last_close:,.2f}
-🏦 Байбит: ${last_close:,.2f}
-📊 ТрейдингВью: {max(highs[-1:]):,.0f} / {min(lows[-1:]):,.0f}
+🏦 Bybit: ${last_close:,.2f} | {whale}
 
-📈 ТРЕНД ЛИНИЯЛАР:
-{trend_line}
-- Сопротивление: ${prev_high:,.0f} (BOS LONG)
-- Поддержка: ${prev_low:,.0f} (BOS SHORT)
-- Канал: ${range_low:,.0f} - ${range_high:,.0f}
+🔴 RESISTANCE:
+R3: ${R3:,.0f} 🔥 Күчтүү
+R2: ${R2:,.0f} ⚠️ Орточо
+R1: ${R1:,.0f} → BOS чекит LONG
 
-{whale}
+🟢 SUPPORT:
+S1: ${S1:,.0f} → BOS чекит SHORT
+S2: ${S2:,.0f} ⚠️ Орточо
+S3: ${S3:,.0f} 🔥 Күчтүү OB
 
-📊 ОБЪЕМ:
-- Азыр: ${last_vol:,.0f} | Орточо 20 свеча: ${avg_vol:,.0f} | К: {vol_ratio:.1f}x
-- {rsi_txt}
+📈 {trend} | Вайкофф {pos:.0f}%
+BOS: >${prev_high:,.0f} LONG | <${prev_low:,.0f} SHORT
 
-🧠 ВАЙКОФФ + СТРУКТУРА:
-{wyckoff}
-- Фаза позициясы: {pos_in_range*100:.0f}% диапазона
-- {trend}
-
-⏳ Күтүү - BOS + Кит подтвержение күтөм!
-
-⚡️ Akyl Professional"""
+⚡️ Akyl Pro"""
                     requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", data={"chat_id": CHAT_ID, "text": txt})
                     last_hourly = time.time()
-
+                    print(f"📤 Hourly S/R {last_close}", flush=True)
         except Exception as e:
-            print(f"❌ {e}", flush=True)
+            print(f"Loop ERR {e}", flush=True)
         time.sleep(60)
 
 threading.Thread(target=bot_loop, daemon=True).start()
