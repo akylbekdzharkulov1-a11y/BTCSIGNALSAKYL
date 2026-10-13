@@ -1,7 +1,7 @@
 import os, time, threading, requests
 from flask import Flask
 TOKEN=os.getenv("BOT_TOKEN")
-"CHANNEL="@xauusdakyl"
+"CHANNEL="@xauusdaky"
 app=Flask(__name__)
 @app.route('/')
 def home(): return "BTC FUTURES LIVE"
