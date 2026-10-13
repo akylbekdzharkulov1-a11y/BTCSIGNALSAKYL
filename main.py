@@ -11,13 +11,28 @@ def send(m):
         requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage",
         json={"chat_id":CHANNEL,"text":m,"parse_mode":"HTML"},timeout=10)
     except: pass
-def get_candles(sym="BTCUSDT",interval="5m",limit=100):
-    url=f"https://fapi.binance.com/fapi/v1/klines?symbol={sym}&interval={interval}&limit={limit}"
-    r=requests.get(url,timeout=10).json()
-    closes=[float(x[4]) for x in r]
-    highs=[float(x[2]) for x in r]
-    lows=[float(x[3]) for x in r]
-    return closes,highs,lows
+
+def get_candles(interval="5m",limit=100):
+    # 1-булак: Binance Futures
+    try:
+        url=f"https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval={interval}&limit={limit}"
+        r=requests.get(url,headers={"User-Agent":"Mozilla/5.0"},timeout=10).json()
+        if isinstance(r,list) and len(r)>60:
+            c=[float(x[4]) for x in r]; h=[float(x[2]) for x in r]; l=[float(x[3]) for x in r]
+            return c,h,l
+    except Exception as e:
+        print(f"fapi fail {e}",flush=True)
+    # 2-булак: Binance Data API (блоктолбойт)
+    try:
+        url=f"https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval={interval}&limit={limit}"
+        r=requests.get(url,timeout=10).json()
+        if isinstance(r,list) and len(r)>60:
+            c=[float(x[4]) for x in r]; h=[float(x[2]) for x in r]; l=[float(x[3]) for x in r]
+            return c,h,l
+    except Exception as e:
+        print(f"data-api fail {e}",flush=True)
+    return [],[],[]
+
 def rsi(c,p=14):
     if len(c)<p+1: return 50
     g=l=0
@@ -25,22 +40,22 @@ def rsi(c,p=14):
         d=c[-i]-c[-i-1]
         if d>0: g+=d
         else: l+=abs(d)
-    if l==0: return 70
-    return 100-(100/(1+(g/p)/(l/p)))
+    return 50 if l==0 else 100-(100/(1+(g/p)/(l/p)))
+
 def loop():
     global LAST
     print("FUTURES STARTED",flush=True)
     while True:
         try:
-            c5,h5,l5=get_candles("BTCUSDT","5m",100)
+            c5,h5,l5=get_candles("5m",100)
             if len(c5)<60:
-                time.sleep(10); continue
+                print(f"WAIT candles {len(c5)}",flush=True)
+                time.sleep(20); continue
             price=c5[-1]
             ema20=sum(c5[-20:])/20
             ema50=sum(c5[-50:])/50
             rr=rsi(c5)
-            ah=max(h5[-72:-12])
-            al=min(l5[-72:-12])
+            ah=max(h5[-72:-12]); al=min(l5[-72:-12])
             ph=c5[-2]<ah and price>ah
             pl=c5[-2]>al and price<al
             s_sell=int(ph)+int(ema20<ema50)+int(rr<58)
@@ -51,11 +66,12 @@ def loop():
                 sl=ah+120 if sig=="SELL" else al-120
                 tp=al if sig=="SELL" else ah
                 icon="🔴" if sig=="SELL" else "🟢"
-                send(f"{icon} <b>BTCUSDT FUTURES {sig} {price:.2f}</b>\nScore: {max(s_sell,s_buy)}/3 RSI:{rr:.0f}\nSL:{sl:.1f} TP:{tp:.1f}\n#futures")
+                send(f"{icon} <b>BTCUSDT FUTURES {sig} {price:.2f}</b>\nScore:{max(s_sell,s_buy)}/3 RSI:{rr:.0f}\nSL:{sl:.1f} TP:{tp:.1f}\n#futures")
                 LAST=time.time()
             time.sleep(60)
         except Exception as e:
-            print(f"ERR {e}",flush=True); time.sleep(30)
+            print(f"LOOP ERR {e}",flush=True); time.sleep(30)
+
 threading.Thread(target=loop,daemon=True).start()
 if __name__=="__main__":
     app.run(host="0.0.0.0",port=int(os.environ.get("PORT",10000)))
